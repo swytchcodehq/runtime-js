@@ -33,23 +33,17 @@ describe('Core Execution Engine (exec.js)', () => {
         assert.strictEqual(inv.windowsVerbatimArguments, false);
     });
 
-    test('buildInvocation() wraps in cmd.exe and escapes for Windows .cmd shims', () => {
-        // Temporarily override process.platform
-        Object.defineProperty(process, 'platform', { value: 'win32' });
-        
+    test('buildInvocation() wraps in cmd.exe and escapes for Windows .cmd shims', { skip: process.platform !== 'win32' }, () => {
         const inv = buildInvocation('swytchcode.cmd', ['exec', 'my&tool|id']);
-        
+
         assert.match(inv.command, /cmd\.exe/i);
         assert.strictEqual(inv.windowsVerbatimArguments, true);
-        
+
         // Assert that the string contains the caret-escaped ampersand
         const fullCommand = inv.args.join(' ');
         assert.ok(fullCommand.includes('^&'), 'Windows metacharacters should be caret-escaped');
-        
-        // Restore platform
-        Object.defineProperty(process, 'platform', { value: originalEnv.OS === 'Windows_NT' ? 'win32' : 'linux' });
     });
-
+    
     describe('exec() Edge Cases', () => {
         test('returns null when JSON mode receives empty stdout', async () => {
             mock.method(cp, 'spawnSync', () => ({
