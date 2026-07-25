@@ -1,6 +1,6 @@
 {
   "name": "@swytchcode/runtime",
-  "version": "1.0.0-beta.2",
+  "version": "1.1.0",
   "description": "Thin runtime wrapper around the Swytchcode CLI",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -78,7 +78,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/swytchcodehq/runtime-js"
+    "url": "git+https://github.com/swytchcodehq/runtime-js.git"
   },
   "license": "MIT",
   "publishConfig": {
