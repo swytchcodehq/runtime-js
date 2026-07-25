@@ -39,16 +39,16 @@ describe('Execution & Routing Isolation', () => {
             
             // Verify the successful execution
             const successResult = results.find(r => r.tool_use_id === 'call_1');
+            assert.ok(successResult, 'Expected a tool_result for call_1');
             assert.strictEqual(successResult.type, 'tool_result');
             assert.deepStrictEqual(JSON.parse(successResult.content), { success: true });
 
             // Verify the failed execution degraded gracefully
             const failResult = results.find(r => r.tool_use_id === 'call_2');
+            assert.ok(failResult, 'Expected a tool_result for call_2');
             assert.strictEqual(failResult.type, 'tool_result');
             assert.strictEqual(failResult.is_error, true);
             assert.ok(failResult.content.includes('Tool crashed'));
         });
     });
-    
-   
 });
