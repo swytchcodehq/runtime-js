@@ -77,10 +77,12 @@ This runtime invokes `swytchcode exec [canonical_id]` with the flags above. For 
 
 ### Environment variables
 
+This runtime itself needs no environment configuration to run - all auth lives in the CLI's own session (`swytchcode login`, stored under `~/.swytchcode/`) or in `.swytchcode/` in your project. The variables below are for the rarer cases where you need to override that:
+
 | Variable | Description |
 |----------|-------------|
 | `SWYTCHCODE_BIN` | Override the resolved binary path. Set this only when automatic resolution does not find the correct binary (e.g. non-standard install locations). |
-| `SWYTCHCODE_TOKEN` | Auth token passed to the CLI via the process environment. |
+| `SWYTCHCODE_TOKEN` | Service-token auth for headless environments (CI, servers) where an interactive `swytchcode login` isn't possible. Not needed for local development once you've run `swytchcode login`. |
 | `SWYTCHCODE_RUNTIME_DEBUG` | Set to `1` or `true` to enable debug logging (same as `{ debug: true }`). |
 
 **Debug logs** are also enabled when `SWYTCHCODE_RUNTIME_DEBUG=1` or `SWYTCHCODE_RUNTIME_DEBUG=true` (no code change):
@@ -162,7 +164,36 @@ const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
 
 ### Quickstart: Anthropic SDK
 
-Here is a clean example of building a simple agent using the Anthropic SDK. We use `dotenv` to load environment variables (like `ANTHROPIC_API_KEY`).
+Here is a clean example of building a simple agent using the Anthropic SDK. It stars the [Swytchcode Examples repo](https://github.com/swytchcodehq/swytchcode-examples) on GitHub - a genuine OAuth-connected action (not just an API key passed on the request), so the setup below covers the real one-time flow: installing the CLI, logging in, and connecting a GitHub account.
+
+**One-time setup** (run once per machine/project):
+
+```bash
+# 1. Install the CLI (macOS/Linux; see https://cli.swytchcode.com for other platforms)
+curl -fsSL https://cli.swytchcode.com/install.sh | sh
+
+# 2. Scaffold .swytchcode/ + tooling.json in your project
+swytchcode init
+
+# 3. Log in (opens a browser; creates your Swytchcode session)
+swytchcode login
+
+# 4. Fetch the GitHub integration
+swytchcode get github
+
+# 5. Enable the "star a repo" tool - the trust boundary for what this project can call
+swytchcode add user.starred.update
+
+# 6. Connect your GitHub account (opens a browser for the OAuth flow)
+swytchcode auth connect github
+```
+
+Then add your Anthropic key to a `.env` file in your project root (used by `dotenv` below):
+
+```bash
+# .env
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
 **Installation:**
 ```bash
@@ -179,24 +210,29 @@ import { AnthropicProvider } from "@swytchcode/runtime/providers/anthropic";
 
 async function runAgent() {
   const anthropic = new Anthropic();
-  
+
   // 1. Initialize Swytchcode with the Anthropic provider
   const swx = new Swytchcode(new AnthropicProvider());
-  
-  // 2. Fetch the tools you want your agent to use (e.g., Stripe tools)
-  const tools = await swx.tools.get({ toolkits: ["stripe"] });
 
-  // 3. Pass them to Claude - TOOL_USE_INSTRUCTIONS tells Claude to call the
-  // tool directly for action requests, instead of just describing what it would do
+  // 2. Fetch the tools you want your agent to use (e.g., GitHub tools)
+  const tools = await swx.tools.get({ toolkits: ["github"] });
+
+  // 3. Build the system prompt: your own instructions plus TOOL_USE_INSTRUCTIONS,
+  // which tells Claude to call the tool directly for action requests instead of
+  // just describing what it would do
+  const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
+
   const response = await anthropic.messages.create({
     model: "claude-3-5-sonnet-latest",
     max_tokens: 1024,
-    system: TOOL_USE_INSTRUCTIONS,
+    system,
     tools: tools,
-    messages: [{ role: "user", content: "Refund charge ch_123 for $20." }],
+    messages: [{ role: "user", content: "Star the swytchcodehq/swytchcode-examples repo on GitHub for me." }],
   });
 
-  console.log(response);
+  // 4. Run any tool calls Claude made and send the results back
+  const results = await swx.handleToolCalls(response);
+  console.log(results);
 }
 
 runAgent();
