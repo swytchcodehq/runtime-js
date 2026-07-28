@@ -182,7 +182,7 @@ swytchcode login
 swytchcode get github
 
 # 5. Enable the "star a repo" tool - the trust boundary for what this project can call
-swytchcode add user.starred.update
+swytchcode add github.user.starred.update
 
 # 6. Connect your GitHub account (opens a browser for the OAuth flow)
 swytchcode auth connect github
@@ -223,7 +223,7 @@ async function runAgent() {
   const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
 
   const response = await anthropic.messages.create({
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-opus-5",
     max_tokens: 1024,
     system,
     tools: tools,
