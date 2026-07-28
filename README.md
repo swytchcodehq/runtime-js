@@ -197,7 +197,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 **Installation:**
 ```bash
-npm install @swytchcode/runtime @anthropic-ai/sdk dotenv
+npm install @swytchcode/runtime @anthropic-ai/sdk dotenv zod
 ```
 *(Note: You only need to install the SDK for the framework you are actually using. You **do not** need to install `@openai/agents`, `@langchain/core`, or `ai` if you are only using Anthropic. The `@swytchcode/runtime` isolates these dependencies via subpath exports.)*
 
