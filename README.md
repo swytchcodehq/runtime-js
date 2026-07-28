@@ -182,7 +182,7 @@ swytchcode login
 swytchcode get github
 
 # 5. Enable the "star a repo" tool - the trust boundary for what this project can call
-swytchcode add user.starred.update
+swytchcode add github.user.starred.update
 
 # 6. Connect your GitHub account (opens a browser for the OAuth flow)
 swytchcode auth connect github
@@ -197,7 +197,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 **Installation:**
 ```bash
-npm install @swytchcode/runtime @anthropic-ai/sdk dotenv
+npm install @swytchcode/runtime @anthropic-ai/sdk dotenv zod
 ```
 *(Note: You only need to install the SDK for the framework you are actually using. You **do not** need to install `@openai/agents`, `@langchain/core`, or `ai` if you are only using Anthropic. The `@swytchcode/runtime` isolates these dependencies via subpath exports.)*
 
@@ -223,7 +223,7 @@ async function runAgent() {
   const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
 
   const response = await anthropic.messages.create({
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-sonnet-5",
     max_tokens: 1024,
     system,
     tools: tools,
