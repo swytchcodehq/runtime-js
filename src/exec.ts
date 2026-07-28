@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
 import type { ExecArgs, ExecOptions, ExecResult } from "./types.js";
-import { SwytchcodeError } from "./errors.js";
+import { SwytchcodeError, type SwytchcodeErrorDetails } from "./errors.js";
 
 const LOG_PREFIX = "[swytchcode-runtime]";
 const IS_WINDOWS = process.platform === "win32";
@@ -104,6 +104,35 @@ export function resolveSwytchcodeBin(startDir: string): string {
   }
 
   return "swytchcode"; // fall through to PATH; spawnSync reports ENOENT if still missing
+}
+
+/**
+ * The CLI writes a classified JSON error to stderr on every non-zero exit that isn't
+ * a signal (see internal/kernel/errors.go's WriteClassifiedError) - always JSON, even
+ * in --raw mode. Parsing it here turns a raw JSON blob into a clean message plus
+ * structured details, instead of leaving the developer to see `{"error":"...",...}`
+ * as the thrown error's message.
+ */
+interface ClassifiedError {
+  error: string;
+  category?: string;
+  retryable?: boolean;
+  suggested_action?: string;
+  docs_url?: string;
+}
+
+export function parseClassifiedError(stderr: string): ClassifiedError | null {
+  if (!stderr) return null;
+  try {
+    const obj = JSON.parse(stderr);
+    if (obj && typeof obj === "object" && typeof obj.error === "string") {
+      return obj as ClassifiedError;
+    }
+  } catch {
+    // Not JSON (spawn-level failure, or a CLI version predating this format) -
+    // caller falls back to the raw stderr text.
+  }
+  return null;
 }
 
 function isDebug(options: ExecOptions): boolean {
@@ -221,13 +250,29 @@ export function exec(
   }
 
   if (result.status !== 0) {
-    const message =
-      result.signal != null
-        ? `swytchcode exec failed (signal ${String(result.signal)})`
-        : stderr || "swytchcode exec failed";
+    let message: string;
+    let details: SwytchcodeErrorDetails | undefined;
+    if (result.signal != null) {
+      message = `swytchcode exec failed (signal ${String(result.signal)})`;
+    } else {
+      const classified = parseClassifiedError(stderr);
+      if (classified) {
+        message = classified.suggested_action
+          ? `${classified.error} - ${classified.suggested_action}`
+          : classified.error;
+        details = {
+          category: classified.category,
+          retryable: classified.retryable,
+          suggestedAction: classified.suggested_action,
+          docsUrl: classified.docs_url,
+        };
+      } else {
+        message = stderr || "swytchcode exec failed";
+      }
+    }
     log(debug, "reject:", `status ${result.status}, ${message.slice(0, 100)}`);
     return Promise.reject(
-      new SwytchcodeError(message, result.status ?? result.signal ?? stderr)
+      new SwytchcodeError(message, result.status ?? result.signal ?? stderr, details)
     );
   }
 

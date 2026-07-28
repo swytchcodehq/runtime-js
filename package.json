@@ -1,6 +1,6 @@
 {
   "name": "@swytchcode/runtime",
-  "version": "1.1.0",
+  "version": "1.1.1.beta.1",
   "description": "Thin runtime wrapper around the Swytchcode CLI",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

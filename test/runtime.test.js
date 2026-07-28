@@ -53,7 +53,7 @@ test('VercelProvider uses inputSchema instead of parameters', async () => {
         execute: async () => {}
     };
     const formatted = await provider.formatTool(toolDef);
-    assert.ok(formatted.inputSchema !== undefined, 'Vercel tool must have inputSchema — model sees zero inputs');
+    assert.ok(formatted.inputSchema !== undefined, 'Vercel tool must have inputSchema - model sees zero inputs');
 });
 
 test('Schema correctly marks array Wreken path parameters as required', () => {
@@ -85,6 +85,36 @@ test('CrewAIProvider produces correct duck-typed shape', async () => {
     // Ensure func returns stringified JSON as expected
     const res = await formatted.func({ a: "test" });
     assert.strictEqual(res, '{"a":"test"}');
+});
+
+test('TOOL_USE_INSTRUCTIONS is exported, instructs the model to call tools, and scopes itself to Swytchcode tools only', () => {
+    const { TOOL_USE_INSTRUCTIONS } = require('../dist/index.js');
+    assert.strictEqual(typeof TOOL_USE_INSTRUCTIONS, 'string');
+    assert.ok(TOOL_USE_INSTRUCTIONS.length > 0);
+    assert.match(TOOL_USE_INSTRUCTIONS, /call the matching tool/i);
+    assert.match(TOOL_USE_INSTRUCTIONS, /does not affect how you use any\s+other tools/i);
+});
+
+test('parseClassifiedError extracts the CLI\'s classified JSON error from stderr', () => {
+    const { parseClassifiedError } = require('../dist/exec.js');
+    const stderr = JSON.stringify({
+        error: 'missing credentials for github - run `swytchcode auth connect github`',
+        category: 'auth',
+        retryable: false,
+        suggested_action: 'to access registry features, run: swytchcode login',
+        docs_url: 'https://docs.swytchcode.com/auth',
+    });
+    const parsed = parseClassifiedError(stderr);
+    assert.strictEqual(parsed.error, 'missing credentials for github - run `swytchcode auth connect github`');
+    assert.strictEqual(parsed.category, 'auth');
+    assert.strictEqual(parsed.suggested_action, 'to access registry features, run: swytchcode login');
+});
+
+test('parseClassifiedError returns null for non-JSON or shapeless stderr', () => {
+    const { parseClassifiedError } = require('../dist/exec.js');
+    assert.strictEqual(parseClassifiedError(''), null);
+    assert.strictEqual(parseClassifiedError('a plain-text panic, not JSON'), null);
+    assert.strictEqual(parseClassifiedError('{"not_error_field": true}'), null);
 });
 
 test('Deterministic alias generation and round-tripping for >64 char IDs', async () => {
