@@ -223,7 +223,7 @@ async function runAgent() {
   const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
 
   const response = await anthropic.messages.create({
-    model: "claude-opus-5",
+    model: "claude-sonnet-5",
     max_tokens: 1024,
     system,
     tools: tools,
