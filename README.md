@@ -237,6 +237,9 @@ async function runAgent() {
     });
     messages.push({ role: "assistant", content: response.content });
 
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("Response truncated at max_tokens - increase the limit and retry");
+    }
     if (response.stop_reason !== "tool_use") break;
 
     const toolResults = await swx.handleToolCalls(response);
