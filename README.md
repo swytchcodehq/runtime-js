@@ -226,8 +226,13 @@ async function runAgent() {
   // 4. Loop until Claude stops requesting tool calls: run any tool calls
   // Claude made and send the results back so it can keep working toward
   // a final natural-language reply instead of stopping after one round
+  const MAX_TURNS = 10;
   let response: Anthropic.Message;
-  while (true) {
+  for (let turn = 0; ; turn++) {
+    if (turn >= MAX_TURNS) {
+      throw new Error(`Exceeded ${MAX_TURNS} tool-use turns without a final reply`);
+    }
+
     response = await anthropic.messages.create({
       model: "claude-sonnet-5",
       max_tokens: 1024,
