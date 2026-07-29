@@ -224,7 +224,7 @@ async function runAgent() {
   ];
 
   const response = await anthropic.messages.create({
-    model: "claude-opus-5",
+    model: "claude-sonnet-5",
     max_tokens: 1024,
     system,
     tools: tools,
