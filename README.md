@@ -223,37 +223,28 @@ async function runAgent() {
     { role: "user", content: "Star the swytchcodehq/swytchcode-examples repo on GitHub for me." },
   ];
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 1024,
-    system,
-    tools: tools,
-    messages,
-  });
-
-  // 4. Run any tool calls Claude made, then send the results back so Claude
-  // can turn them into a final natural-language reply instead of a raw tool_result block
-  const toolResults = await swx.handleToolCalls(response);
-
-  if (toolResults.length > 0) {
-    messages.push({ role: "assistant", content: response.content });
-    messages.push({ role: "user", content: toolResults as Anthropic.ToolResultBlockParam[] });
-
-    const followUp = await anthropic.messages.create({
-      model: "claude-opus-5",
+  // 4. Loop until Claude stops requesting tool calls: run any tool calls
+  // Claude made and send the results back so it can keep working toward
+  // a final natural-language reply instead of stopping after one round
+  let response: Anthropic.Message;
+  while (true) {
+    response = await anthropic.messages.create({
+      model: "claude-sonnet-5",
       max_tokens: 1024,
       system,
       tools: tools,
       messages,
     });
+    messages.push({ role: "assistant", content: response.content });
 
-    for (const block of followUp.content) {
-      if (block.type === "text") console.log(block.text);
-    }
-  } else {
-    for (const block of response.content) {
-      if (block.type === "text") console.log(block.text);
-    }
+    if (response.stop_reason !== "tool_use") break;
+
+    const toolResults = await swx.handleToolCalls(response);
+    messages.push({ role: "user", content: toolResults as Anthropic.ToolResultBlockParam[] });
+  }
+
+  for (const block of response.content) {
+    if (block.type === "text") console.log(block.text);
   }
 }
 
