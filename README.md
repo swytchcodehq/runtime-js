@@ -175,16 +175,13 @@ curl -fsSL https://cli.swytchcode.com/install.sh | sh
 # 2. Scaffold .swytchcode/ + tooling.json in your project
 swytchcode init
 
-# 3. Log in (opens a browser; creates your Swytchcode session)
-swytchcode login
-
-# 4. Fetch the GitHub integration
+# 3. Fetch the GitHub integration
 swytchcode get github
 
-# 5. Enable the "star a repo" tool - the trust boundary for what this project can call
-swytchcode add github.user.starred.update
+# 4. Enable the "star a repo" tool - the trust boundary for what this project can call
+swytchcode add method github.user.starred.update
 
-# 6. Connect your GitHub account (opens a browser for the OAuth flow)
+# 5. Connect your GitHub account (opens a browser for the OAuth flow)
 swytchcode auth connect github
 ```
 
@@ -222,17 +219,42 @@ async function runAgent() {
   // just describing what it would do
   const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
 
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: "Star the swytchcodehq/swytchcode-examples repo on GitHub for me." },
+  ];
+
   const response = await anthropic.messages.create({
     model: "claude-opus-5",
     max_tokens: 1024,
     system,
     tools: tools,
-    messages: [{ role: "user", content: "Star the swytchcodehq/swytchcode-examples repo on GitHub for me." }],
+    messages,
   });
 
-  // 4. Run any tool calls Claude made and send the results back
-  const results = await swx.handleToolCalls(response);
-  console.log(results);
+  // 4. Run any tool calls Claude made, then send the results back so Claude
+  // can turn them into a final natural-language reply instead of a raw tool_result block
+  const toolResults = await swx.handleToolCalls(response);
+
+  if (toolResults.length > 0) {
+    messages.push({ role: "assistant", content: response.content });
+    messages.push({ role: "user", content: toolResults as Anthropic.ToolResultBlockParam[] });
+
+    const followUp = await anthropic.messages.create({
+      model: "claude-opus-5",
+      max_tokens: 1024,
+      system,
+      tools: tools,
+      messages,
+    });
+
+    for (const block of followUp.content) {
+      if (block.type === "text") console.log(block.text);
+    }
+  } else {
+    for (const block of response.content) {
+      if (block.type === "text") console.log(block.text);
+    }
+  }
 }
 
 runAgent();
