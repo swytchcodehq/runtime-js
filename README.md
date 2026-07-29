@@ -175,16 +175,13 @@ curl -fsSL https://cli.swytchcode.com/install.sh | sh
 # 2. Scaffold .swytchcode/ + tooling.json in your project
 swytchcode init
 
-# 3. Log in (opens a browser; creates your Swytchcode session)
-swytchcode login
-
-# 4. Fetch the GitHub integration
+# 3. Fetch the GitHub integration
 swytchcode get github
 
-# 5. Enable the "star a repo" tool - the trust boundary for what this project can call
-swytchcode add github.user.starred.update
+# 4. Enable the "star a repo" tool - the trust boundary for what this project can call
+swytchcode add method github.user.starred.update
 
-# 6. Connect your GitHub account (opens a browser for the OAuth flow)
+# 5. Connect your GitHub account (opens a browser for the OAuth flow)
 swytchcode auth connect github
 ```
 
@@ -222,17 +219,41 @@ async function runAgent() {
   // just describing what it would do
   const system = `You are a helpful assistant.\n\n${TOOL_USE_INSTRUCTIONS}`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 1024,
-    system,
-    tools: tools,
-    messages: [{ role: "user", content: "Star the swytchcodehq/swytchcode-examples repo on GitHub for me." }],
-  });
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: "Star the swytchcodehq/swytchcode-examples repo on GitHub for me." },
+  ];
 
-  // 4. Run any tool calls Claude made and send the results back
-  const results = await swx.handleToolCalls(response);
-  console.log(results);
+  // 4. Loop until Claude stops requesting tool calls: run any tool calls
+  // Claude made and send the results back so it can keep working toward
+  // a final natural-language reply instead of stopping after one round
+  const MAX_TURNS = 10;
+  let response: Anthropic.Message;
+  for (let turn = 0; ; turn++) {
+    if (turn >= MAX_TURNS) {
+      throw new Error(`Exceeded ${MAX_TURNS} tool-use turns without a final reply`);
+    }
+
+    response = await anthropic.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 1024,
+      system,
+      tools: tools,
+      messages,
+    });
+    messages.push({ role: "assistant", content: response.content });
+
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("Response truncated at max_tokens - increase the limit and retry");
+    }
+    if (response.stop_reason !== "tool_use") break;
+
+    const toolResults = await swx.handleToolCalls(response);
+    messages.push({ role: "user", content: toolResults as Anthropic.ToolResultBlockParam[] });
+  }
+
+  for (const block of response.content) {
+    if (block.type === "text") console.log(block.text);
+  }
 }
 
 runAgent();
