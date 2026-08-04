@@ -36,8 +36,7 @@ function isRequired(spec: any): boolean {
 }
 
 function isValidName(name: string): boolean {
-  if (!name || name.startsWith("$")) return false;
-  return /^[a-zA-Z0-9_-]+$/.test(name);
+  return Boolean(name) && !name.startsWith("$");
 }
 
 // Convert one field spec into a JSON Schema fragment, recursing into nested object
@@ -68,7 +67,13 @@ function expand(spec: any): any {
       out.required = explicit.filter((name) => name in out.properties);
     }
   } else if (t === "array") {
-    const items = spec.items ?? (spec.schema && typeof spec.schema === "object" ? spec.schema.items : undefined);
+    let items = spec.items ?? (spec.schema && typeof spec.schema === "object" ? spec.schema.items : undefined);
+    if (!items) {
+      const raw = String(spec.TYPE ?? spec.type ?? "");
+      if (raw.startsWith("[]")) {
+        items = { type: raw.slice(2) };
+      }
+    }
     if (items && typeof items === "object") out.items = expand(items);
   }
 
@@ -90,9 +95,8 @@ export function simplify(inputs: any): JS {
         // leaving the model blind to what to send).
         properties[name] = expand(spec);
 
-        const req = spec.REQUIRED;
         const loc = String(spec.LOCATION || spec.location || "").toLowerCase();
-        const isReq = loc === "path" || req === true || (typeof req === "string" && req.trim().toLowerCase() === "true");
+        const isReq = loc === "path" || isRequired(spec);
         if (isReq) required.push(name);
       }
     }
@@ -109,7 +113,7 @@ export function simplify(inputs: any): JS {
   }
 
   const properties = inputs.properties || {};
-  const required: string[] = Array.isArray(inputs.required) ? inputs.required : [];
+  const required: string[] = Array.isArray(inputs.required) ? [...inputs.required] : [];
   const keep: Record<string, any> = {};
 
   // Expose ALL fields (same rule as the array branch above); use the original
@@ -137,7 +141,9 @@ export function simplify(inputs: any): JS {
 // objects and array items.
 function zodFor(spec: any): z.ZodTypeAny {
   let t: z.ZodTypeAny;
-  if (spec.type === "integer" || spec.type === "number") {
+  if (spec.type === "integer") {
+    t = z.number().int();
+  } else if (spec.type === "number") {
     t = z.number();
   } else if (spec.type === "boolean") {
     t = z.boolean();

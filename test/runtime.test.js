@@ -110,6 +110,41 @@ test('toZod builds a real object schema for a nested body and parses it', async 
     const parsed = zodSchema.parse({ body: { prompt: "hi" } });
     // A plain object (not a class instance) so JSON.stringify never throws.
     assert.deepStrictEqual(parsed.body, { prompt: "hi" });
+    assert.throws(() => zodSchema.parse({ body: {} }));
+    assert.throws(() => zodSchema.parse({ body: { prompt: 1 } }));
+});
+
+test('Schema expands array items with nested objects and validates via toZod', async () => {
+    const { toZod } = require('../dist/schema.js');
+    const rawSchema = [
+        {
+            "body": {
+                "LOCATION": "body",
+                "TYPE": "OBJECT",
+                "schema": {
+                    "properties": {
+                        "attendees": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "schema": {
+                                    "properties": { "email": { "type": "string", "required": true } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ];
+    const simplified = simplify(rawSchema);
+    assert.strictEqual(simplified.properties.body.properties.attendees.type, "array");
+    assert.strictEqual(simplified.properties.body.properties.attendees.items.properties.email.type, "string");
+
+    const zodSchema = toZod(simplified);
+    const valid = zodSchema.parse({ body: { attendees: [{ email: "a@b.com" }] } });
+    assert.strictEqual(valid.body.attendees[0].email, "a@b.com");
+    assert.throws(() => zodSchema.parse({ body: { attendees: [{ email: 123 }] } }));
 });
 
 test('toZod keeps a permissive record for a freeform object body', async () => {
