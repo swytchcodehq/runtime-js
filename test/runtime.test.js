@@ -66,6 +66,59 @@ test('Schema correctly marks array Wreken path parameters as required', () => {
     assert.ok(!simplified.required.includes("title"));
 });
 
+test('Schema expands a nested object body instead of flattening it', () => {
+    // The shape `swytchcode info` returns for a POST tool with an object body:
+    // the body's fields live under spec.schema, which simplify used to drop.
+    const rawSchema = [
+        { "owner": { "LOCATION": "path", "TYPE": "STRING" } },
+        {
+            "body": {
+                "LOCATION": "body",
+                "TYPE": "OBJECT",
+                "schema": {
+                    "properties": {
+                        "prompt": { "type": "string", "required": true },
+                        "create_pull_request": { "type": "boolean", "required": false }
+                    },
+                    "required": ["prompt"]
+                }
+            }
+        }
+    ];
+    const body = simplify(rawSchema).properties.body;
+    assert.strictEqual(body.type, "object");
+    assert.strictEqual(body.properties.prompt.type, "string");
+    assert.strictEqual(body.properties.create_pull_request.type, "boolean");
+    assert.deepStrictEqual(body.required, ["prompt"]);
+});
+
+test('toZod builds a real object schema for a nested body and parses it', async () => {
+    const { toZod } = require('../dist/schema.js');
+    const schema = simplify([
+        {
+            "body": {
+                "LOCATION": "body",
+                "TYPE": "OBJECT",
+                "schema": {
+                    "properties": { "prompt": { "type": "string", "required": true } },
+                    "required": ["prompt"]
+                }
+            }
+        }
+    ]);
+    const zodSchema = toZod(schema);
+    const parsed = zodSchema.parse({ body: { prompt: "hi" } });
+    // A plain object (not a class instance) so JSON.stringify never throws.
+    assert.deepStrictEqual(parsed.body, { prompt: "hi" });
+});
+
+test('toZod keeps a permissive record for a freeform object body', async () => {
+    const { toZod } = require('../dist/schema.js');
+    const schema = simplify([{ "body": { "LOCATION": "body", "TYPE": "OBJECT" } }]);
+    const parsed = toZod(schema).parse({ body: { anything: 1, nested: { a: true } } });
+    assert.deepStrictEqual(parsed.body, { anything: 1, nested: { a: true } });
+});
+
 test('CrewAIProvider produces correct duck-typed shape', async () => {
     const { CrewAIProvider } = require('../dist/providers/crewai.js');
     const provider = new CrewAIProvider();
@@ -180,3 +233,15 @@ test('Deterministic alias generation and round-tripping for >64 char IDs', async
         discover.search = origSearch;
     }
 });
+
+test('Schema filters out system parameters starting with dollar sign', () => {
+    const rawSchema = [
+        { "$.xgafv": { "LOCATION": "query", "TYPE": "STRING" } },
+        { "q": { "LOCATION": "query", "TYPE": "STRING" } }
+    ];
+    const simplified = simplify(rawSchema);
+    assert.strictEqual(simplified.properties["$.xgafv"], undefined);
+    assert.strictEqual(simplified.properties.q.type, "string");
+});
+
+
