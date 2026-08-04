@@ -2,6 +2,84 @@ import { z } from "zod";
 
 type JS = { type: string; properties: Record<string, any>; required: string[] };
 
+// Map wrekenfile/CLI type names onto JSON Schema types. Lowercase keys already in
+// JSON Schema form (e.g. "string", "integer") map to themselves so a nested
+// `schema` block from `swytchcode info` passes through unchanged.
+const TYPE_MAP: Record<string, string> = {
+  int: "integer", integer: "integer",
+  float: "number", number: "number", double: "number",
+  bool: "boolean", boolean: "boolean",
+  object: "object", any: "object",
+  string: "string", array: "array",
+};
+
+function jsonType(raw: any): string {
+  const t = String(raw ?? "string").trim().toLowerCase();
+  if (t.startsWith("[]")) return "array";
+  if (t.startsWith("struct(") || t.startsWith("map(")) return "object";
+  return TYPE_MAP[t] ?? "string";
+}
+
+// `swytchcode info` nests an object body's fields under a `schema` key
+// ({ TYPE: "OBJECT", schema: { properties: {...}, required: [...] } }), while a
+// plain JSON Schema keeps `properties` inline. Handle both.
+function nested(spec: any): any | null {
+  const inner = spec.schema;
+  if (inner && typeof inner === "object" && inner.properties && typeof inner.properties === "object") return inner;
+  if (spec.properties && typeof spec.properties === "object") return spec;
+  return null;
+}
+
+function isRequired(spec: any): boolean {
+  const r = spec.required ?? spec.REQUIRED;
+  return r === true || (typeof r === "string" && r.trim().toLowerCase() === "true");
+}
+
+function isValidName(name: string): boolean {
+  return Boolean(name) && !name.startsWith("$");
+}
+
+// Convert one field spec into a JSON Schema fragment, recursing into nested object
+// properties and array items so the model sees the full shape instead of an
+// opaque object.
+function expand(spec: any): any {
+  if (!spec || typeof spec !== "object") return { type: "string" };
+
+  const t = jsonType(spec.TYPE ?? spec.type);
+  const out: any = { type: t };
+
+  const desc = spec.DESC ?? spec.description;
+  if (desc) out.description = desc;
+
+  if (t === "object") {
+    const n = nested(spec);
+    if (n) {
+      out.properties = {};
+      for (const [name, child] of Object.entries<any>(n.properties)) {
+        if (isValidName(name)) out.properties[name] = expand(child);
+      }
+      const explicit = Array.isArray(n.required) ? [...n.required] : [];
+      for (const [name, child] of Object.entries<any>(n.properties)) {
+        if (isValidName(name) && child && typeof child === "object" && isRequired(child) && !explicit.includes(name)) {
+          explicit.push(name);
+        }
+      }
+      out.required = explicit.filter((name) => name in out.properties);
+    }
+  } else if (t === "array") {
+    let items = spec.items ?? (spec.schema && typeof spec.schema === "object" ? spec.schema.items : undefined);
+    if (!items) {
+      const raw = String(spec.TYPE ?? spec.type ?? "");
+      if (raw.startsWith("[]")) {
+        items = { type: raw.slice(2) };
+      }
+    }
+    if (items && typeof items === "object") out.items = expand(items);
+  }
+
+  return out;
+}
+
 export function simplify(inputs: any): JS {
   if (Array.isArray(inputs)) {
     const properties: Record<string,any> = {};
@@ -10,22 +88,16 @@ export function simplify(inputs: any): JS {
     for (const item of inputs) {
       if (!item || typeof item !== "object") continue;
       for (const [name, spec] of Object.entries<any>(item)) {
-        if (!spec || typeof spec !== "object") continue;
+        if (!spec || typeof spec !== "object" || !isValidName(name)) continue;
 
-        let t = String(spec.TYPE ?? "STRING").toLowerCase();
-        if (t === "int") t = "integer";
-        else if (t === "bool") t = "boolean";
-        else if (t === "object" || t === "any") t = "object";
-        else if (t.startsWith("[]")) t = "array";
-        else if (t === "float" || t === "number" || t === "double") t = "number";
-        else t = "string";
+        // Expand into full JSON Schema, keeping nested object/array shape
+        // (a body's fields live under spec.schema and were previously dropped,
+        // leaving the model blind to what to send).
+        properties[name] = expand(spec);
 
-        properties[name] = { type: t, ...(spec.DESC ? { description: spec.DESC } : {}) };
-
-        const req = spec.REQUIRED;
         const loc = String(spec.LOCATION || spec.location || "").toLowerCase();
-        const isRequired = loc === "path" || req === true || (typeof req === "string" && req.trim().toLowerCase() === "true");
-        if (isRequired) required.push(name);
+        const isReq = loc === "path" || isRequired(spec);
+        if (isReq) required.push(name);
       }
     }
     // rule: expose ALL fields to the model and list only the
@@ -35,43 +107,73 @@ export function simplify(inputs: any): JS {
     // optional fields on tools that do have some required ones.
     return { type:"object", properties, required };
   }
-  
+
   if (!inputs || typeof inputs !== "object") {
     return { type:"object", properties:{}, required:[] };
   }
 
   const properties = inputs.properties || {};
-  const required: string[] = Array.isArray(inputs.required) ? inputs.required : [];
+  const required: string[] = Array.isArray(inputs.required) ? [...inputs.required] : [];
   const keep: Record<string, any> = {};
 
   // Expose ALL fields (same rule as the array branch above); use the original
   // required list only for the `required` key so optional/nested fields stay
   // optional instead of being dropped or forced required.
   for (const name of Object.keys(properties)) {
+    if (!isValidName(name)) continue;
     let spec = properties[name] || {};
-    
+
     // JSON-Schema tools might have LOCATION metadata. Mark path params as required.
     const loc = String(spec.LOCATION || spec.location || "").toLowerCase();
     if (loc === "path" && !required.includes(name)) {
       required.push(name);
     }
 
-    if (typeof spec === "object" && spec !== null && spec.type === "object" && spec.properties) {
-        spec = simplify(spec);
+    if (typeof spec === "object" && spec !== null && (jsonType(spec.type ?? spec.TYPE) === "object" || jsonType(spec.type ?? spec.TYPE) === "array")) {
+        spec = expand(spec); // expand nested objects/arrays
     }
     keep[name] = spec;
   }
   return { type: "object", properties: keep, required: required.filter((n) => n in keep) };
 }
 
+// Build a zod type for a single JSON Schema field spec, recursing into nested
+// objects and array items.
+function zodFor(spec: any): z.ZodTypeAny {
+  let t: z.ZodTypeAny;
+  if (spec.type === "integer") {
+    t = z.number().int();
+  } else if (spec.type === "number") {
+    t = z.number();
+  } else if (spec.type === "boolean") {
+    t = z.boolean();
+  } else if (spec.type === "array") {
+    t = z.array(spec.items ? zodFor(spec.items) : z.any());
+  } else if (spec.type === "object") {
+    // Build a real object schema when the fields are known so the model is told
+    // what to send; fall back to a permissive record for freeform objects.
+    if (spec.properties && Object.keys(spec.properties).length > 0) {
+      const shape: Record<string, z.ZodTypeAny> = {};
+      const req: string[] = Array.isArray(spec.required) ? spec.required : [];
+      for (const [name, child] of Object.entries<any>(spec.properties)) {
+        const ct = zodFor(child);
+        shape[name] = req.includes(name) ? ct : ct.optional();
+      }
+      t = z.object(shape);
+    } else {
+      t = z.record(z.string(), z.any());
+    }
+  } else {
+    t = z.string();
+  }
+  if (spec.description) t = t.describe(spec.description);
+  return t;
+}
+
 export function toZod(s: JS) {
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const [name, spec] of Object.entries(s.properties)) {
-    let t: z.ZodTypeAny = spec.type === "integer" || spec.type === "number" ? z.number()
-      : spec.type === "boolean" ? z.boolean()
-      : spec.type === "array" ? z.array(z.any())
-      : spec.type === "object" ? z.record(z.string(), z.any()) : z.string();
-    if (spec.description) t = t.describe(spec.description);
+    const t = zodFor(spec);
     shape[name] = s.required.includes(name) ? t : t.optional();
   }
   return z.object(shape);
