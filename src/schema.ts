@@ -75,6 +75,7 @@ function expand(spec: any): any {
       }
     }
     if (items && typeof items === "object") out.items = expand(items);
+    else out.items = { type: "string" };
   }
 
   return out;

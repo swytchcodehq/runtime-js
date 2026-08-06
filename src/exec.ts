@@ -202,9 +202,11 @@ export function exec(
 
   const inv = buildInvocation(bin, args);
 
+  const childEnv = { ...process.env, ...options.env };
+
   const result = spawnSync(inv.command, inv.args, {
     cwd,
-    env: { ...process.env, ...options.env },
+    env: childEnv,
     input: hasInput ? JSON.stringify(input) : undefined,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024, // 10MB
@@ -228,6 +230,19 @@ export function exec(
   if (stderrRaw.length > 0) {
     const preview = stderrRaw.length > 400 ? stderrRaw.slice(0, 400) + "..." : stderrRaw;
     log(debug, "stderr preview:", JSON.stringify(preview));
+  }
+
+  if (stderr.includes("demo_mode") || stderr.includes("data is simulated")) {
+    const demoAllowed = childEnv.SWYTCHCODE_DEMO === "1";
+    if (!demoAllowed) {
+      log(debug, "reject:", "unrequested demo mode detected");
+      return Promise.reject(
+        new SwytchcodeError(
+          `Swytchcode CLI executed in simulated demo mode: ${stderr}. Initialize a project with \`swytchcode init\` or set SWYTCHCODE_DEMO=1.`,
+          result.status ?? stderr
+        )
+      );
+    }
   }
 
   if (result.error) {
