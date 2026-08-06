@@ -230,6 +230,19 @@ export function exec(
     log(debug, "stderr preview:", JSON.stringify(preview));
   }
 
+  if (stderr.includes("demo_mode") || stderr.includes("data is simulated")) {
+    const demoAllowed = options.env?.SWYTCHCODE_DEMO === "1" || process.env.SWYTCHCODE_DEMO === "1";
+    if (!demoAllowed) {
+      log(debug, "reject:", "unrequested demo mode detected");
+      return Promise.reject(
+        new SwytchcodeError(
+          `Swytchcode CLI executed in simulated demo mode: ${stderr}. Initialize a project with \`swytchcode init\` or pass --demo explicitly.`,
+          result.status ?? stderr
+        )
+      );
+    }
+  }
+
   if (result.error) {
     log(debug, "reject:", "spawn error");
     if ((result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
