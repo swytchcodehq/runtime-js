@@ -156,6 +156,7 @@ test('toZod keeps a permissive record for a freeform object body', async () => {
 
 test('CrewAIProvider produces correct duck-typed shape', async () => {
     const { CrewAIProvider } = require('../dist/providers/crewai.js');
+    const { z } = require('zod');
     const provider = new CrewAIProvider();
     const toolDef = {
         canonicalId: "test.tool",
@@ -167,12 +168,38 @@ test('CrewAIProvider produces correct duck-typed shape', async () => {
     const formatted = provider.formatTool(toolDef);
     assert.strictEqual(formatted.name, "test_tool");
     assert.strictEqual(formatted.description, "A crewai test tool");
-    assert.deepStrictEqual(formatted.schema, toolDef.inputSchema);
-    assert.strictEqual(typeof formatted.func, "function");
+    assert.ok(formatted.schema instanceof z.ZodObject);
+    assert.strictEqual(formatted.verbose, false);
+    assert.strictEqual(formatted.cacheResults, false);
+    assert.strictEqual(typeof formatted.execute, "function");
+    assert.strictEqual(typeof formatted.getMetadata, "function");
     
-    // Ensure func returns stringified JSON as expected
-    const res = await formatted.func({ a: "test" });
-    assert.strictEqual(res, '{"a":"test"}');
+    // Validate schema behavior for valid and invalid inputs
+    assert.deepStrictEqual(formatted.schema.parse({ a: "valid" }), { a: "valid" });
+    assert.throws(() => formatted.schema.parse({}));
+    assert.throws(() => formatted.schema.parse({ a: 123 }));
+
+    // Ensure execute returns ToolExecutionResult as expected on success
+    const res = await formatted.execute({ a: "test" });
+    assert.deepStrictEqual(res, { success: true, result: { a: "test" } });
+
+    // Test error handling in execute when tool throws
+    const failingToolDef = {
+        ...toolDef,
+        execute: async () => { throw new Error("Execution failed"); }
+    };
+    const formattedFailing = provider.formatTool(failingToolDef);
+    const failRes = await formattedFailing.execute({ a: "test" });
+    assert.deepStrictEqual(failRes, { success: false, result: null, error: "Execution failed" });
+
+    // Validate getMetadata output and schema behavior
+    const metadata = formatted.getMetadata();
+    assert.strictEqual(metadata.name, "test_tool");
+    assert.strictEqual(metadata.description, "A crewai test tool");
+    assert.ok(metadata.schema instanceof z.ZodObject);
+    assert.deepStrictEqual(metadata.schema.parse({ a: "valid" }), { a: "valid" });
+    assert.throws(() => metadata.schema.parse({}));
+    assert.throws(() => metadata.schema.parse({ a: 123 }));
 });
 
 test('TOOL_USE_INSTRUCTIONS is exported, instructs the model to call tools, and scopes itself to Swytchcode tools only', () => {

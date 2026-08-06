@@ -1,16 +1,26 @@
 import { Provider, Tool } from "./base.js";
+import { toZod } from "../schema.js";
 
-// CrewAI TS is a community port.
+// crewai-ts (@0.2.0) BaseTool shape: zod schema + execute() -> ToolExecutionResult.
+// The legacy `crewai` npm package is a non-functional placeholder, so crewai-ts
+// is the only working TypeScript target.
 export class CrewAIProvider extends Provider {
   formatTool(t: Tool) {
-    // Verified: The crewai NPM package does not export a native Tool class.
-    // It delegates to Langchain under the hood, and its Agent constructor
-    // accepts these duck-typed plain objects for tools.
+    const schema = toZod(t.inputSchema);
     return {
       name: t.name,
       description: t.description,
-      schema: t.inputSchema,                           // JSON schema from simplify()
-      func: async (a: Record<string, any>) => JSON.stringify(await t.execute(a)),
+      schema,
+      verbose: false,
+      cacheResults: false,
+      execute: async (input: Record<string, any>) => {
+        try {
+          return { success: true, result: await t.execute(input) };
+        } catch (e: any) {
+          return { success: false, result: null, error: String(e?.message ?? e) };
+        }
+      },
+      getMetadata: () => ({ name: t.name, description: t.description, schema }),
     };
   }
 }
