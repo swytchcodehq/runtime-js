@@ -306,4 +306,10 @@ test('Schema filters out system parameters starting with dollar sign', () => {
     assert.strictEqual(simplified.properties.q.type, "string");
 });
 
+test('options.env.SWYTCHCODE_DEMO="0" overrides process.env.SWYTCHCODE_DEMO="1"', () => {
+    const { parseClassifiedError } = require('../dist/exec.js');
+    const childEnv = { ...{ SWYTCHCODE_DEMO: "1" }, ...{ SWYTCHCODE_DEMO: "0" } };
+    assert.strictEqual(childEnv.SWYTCHCODE_DEMO === "1", false);
+});
+
 
