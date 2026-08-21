@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync, accessSync, constants } from "node:fs";
 import { resolve as resolvePath, join, delimiter } from "node:path";
 import type { ExecArgs, ExecOptions, ExecResult } from "./types.js";
 import { SwytchcodeError, type SwytchcodeErrorDetails } from "./errors.js";
@@ -60,6 +60,17 @@ export function buildInvocation(
   };
 }
 
+function isExecutable(candidate: string): boolean {
+  try {
+    const stat = statSync(candidate);
+    if (!stat.isFile()) return false;
+    accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve the swytchcode binary path using the following order:
  * 1. SWYTCHCODE_BIN env var — explicit override.
@@ -67,9 +78,9 @@ export function buildInvocation(
  * 3. PATH lookup — the default; spawnSync will handle ENOENT if not found.
  * 4. Common install-path fallbacks for when PATH is not configured.
  */
-export function resolveSwytchcodeBin(startDir: string): string {
+export function resolveSwytchcodeBin(startDir: string, env: NodeJS.ProcessEnv = process.env): string {
   // 1. Explicit override
-  const explicit = process.env.SWYTCHCODE_BIN?.trim();
+  const explicit = env.SWYTCHCODE_BIN?.trim();
   if (explicit) return explicit;
 
   // 2. Walk node_modules/.bin upward from startDir
@@ -77,21 +88,21 @@ export function resolveSwytchcodeBin(startDir: string): string {
   let dir = startDir;
   while (true) {
     const candidate = join(dir, "node_modules", ".bin", binName);
-    if (existsSync(candidate)) return candidate;
+    if (isExecutable(candidate)) return candidate;
     const parent = resolvePath(dir, "..");
     if (parent === dir) break; // reached filesystem root
     dir = parent;
   }
 
   // 3. PATH lookup
-  const pathEnv = process.env.PATH || process.env.Path || "";
+  const pathEnv = env.PATH || env.Path || "";
   if (pathEnv) {
     const paths = pathEnv.split(delimiter);
     const exts = IS_WINDOWS ? [".cmd", ".exe", ".bat", ""] : [""];
     for (const p of paths) {
       for (const ext of exts) {
         const candidate = join(p, "swytchcode" + ext);
-        if (existsSync(candidate)) return candidate;
+        if (isExecutable(candidate)) return candidate;
       }
     }
   }
@@ -99,21 +110,21 @@ export function resolveSwytchcodeBin(startDir: string): string {
   // 4. Common install-path fallbacks
   const fallbacks: string[] = [];
   if (IS_WINDOWS) {
-    if (process.env.APPDATA) {
-      fallbacks.push(join(process.env.APPDATA, "npm", "swytchcode.cmd"));
+    if (env.APPDATA) {
+      fallbacks.push(join(env.APPDATA, "npm", "swytchcode.cmd"));
     }
-    if (process.env.LOCALAPPDATA) {
-      fallbacks.push(join(process.env.LOCALAPPDATA, "Programs", "swytchcode", "bin", "swytchcode.exe"));
+    if (env.LOCALAPPDATA) {
+      fallbacks.push(join(env.LOCALAPPDATA, "Programs", "swytchcode", "bin", "swytchcode.exe"));
     }
   } else {
     fallbacks.push(
-      join(process.env.HOME ?? "", ".local", "bin", "swytchcode"),
+      join(env.HOME ?? "", ".local", "bin", "swytchcode"),
       "/usr/local/bin/swytchcode"
     );
   }
 
   for (const candidate of fallbacks) {
-    if (candidate && existsSync(candidate)) return candidate;
+    if (candidate && isExecutable(candidate)) return candidate;
   }
 
   return "swytchcode"; // fall through to PATH; spawnSync reports ENOENT if still missing
@@ -204,7 +215,8 @@ export function exec(
   if (options.allowRaw === true) args.push("--allow-raw");
   const cwd = options.cwd ?? process.cwd();
   const hasInput = input !== undefined && input !== null;
-  const bin = resolveSwytchcodeBin(cwd);
+  const childEnv = { ...process.env, ...options.env };
+  const bin = resolveSwytchcodeBin(cwd, childEnv);
 
   log(debug, "binary:", bin);
   log(debug, "spawn:", `swytchcode ${args.join(" ")}`);
@@ -214,8 +226,6 @@ export function exec(
   log(debug, "stdin:", hasInput ? `JSON (${JSON.stringify(input).length} chars)` : "none");
 
   const inv = buildInvocation(bin, args);
-
-  const childEnv = { ...process.env, ...options.env };
 
   const result = spawnSync(inv.command, inv.args, {
     cwd,
