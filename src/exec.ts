@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve as resolvePath, join } from "node:path";
+import { resolve as resolvePath, join, delimiter } from "node:path";
 import type { ExecArgs, ExecOptions, ExecResult } from "./types.js";
 import { SwytchcodeError, type SwytchcodeErrorDetails } from "./errors.js";
 
@@ -83,7 +83,20 @@ export function resolveSwytchcodeBin(startDir: string): string {
     dir = parent;
   }
 
-  // 3 & 4. PATH lookup with common install-path fallbacks
+  // 3. PATH lookup
+  const pathEnv = process.env.PATH || process.env.Path || "";
+  if (pathEnv) {
+    const paths = pathEnv.split(delimiter);
+    const exts = IS_WINDOWS ? [".cmd", ".exe", ".bat", ""] : [""];
+    for (const p of paths) {
+      for (const ext of exts) {
+        const candidate = join(p, "swytchcode" + ext);
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+
+  // 4. Common install-path fallbacks
   const fallbacks: string[] = [];
   if (IS_WINDOWS) {
     if (process.env.APPDATA) {
