@@ -4,6 +4,7 @@ import * as manage from "./manage.js";
 import { simplify } from "./schema.js";
 import { Provider, Tool } from "./providers/base.js";
 import type { ExecOptions } from "./types.js";
+import { SwytchcodeError } from "./errors.js";
 import * as crypto from "node:crypto";
 
 const MAX_TOOL_NAME_LEN = 64; // OpenAI and Anthropic strict limit
@@ -136,7 +137,12 @@ class Tools {
       finalArgs.params = stripEmpty(finalArgs.params);
     }
     
-    // Forward exec options (dryRun, raw, allowRaw, cwd, env) to the CLI.
+    // A client bound to one end user runs every tool for that user unless the
+    // call names another one itself.
+    if (this.c.tenantId !== undefined && options.tenantId === undefined) {
+      options = { ...options, tenantId: this.c.tenantId, tenantLabel: options.tenantLabel ?? this.c.tenantLabel };
+    }
+    // Forward exec options (dryRun, raw, allowRaw, cwd, env, tenantId, tenantLabel) to the CLI.
     return exec(canonical_id, finalArgs, options);
   }
 
@@ -189,9 +195,37 @@ class Tools {
   }
 }
 
+/** Options for a Swytchcode client. */
+export interface SwytchcodeOptions {
+  /**
+   * Bind the client to one end user (tenant) of your app: every tool it runs,
+   * including those an AI agent picks, uses that user's connected accounts and
+   * never yours. Create one client per request, from your server's session.
+   */
+  tenantId?: string;
+  /**
+   * How approvers see that end user, for example `"Alice Smith (alice@acme.com)"`.
+   * Needs `tenantId`.
+   */
+  tenantLabel?: string;
+}
+
 export class Swytchcode {
   tools: Tools;
-  constructor(public provider?: Provider) {
+  readonly tenantId?: string;
+  readonly tenantLabel?: string;
+  constructor(public provider?: Provider, options: SwytchcodeOptions = {}) {
+    if (options.tenantId !== undefined) {
+      const tenantId = options.tenantId.trim();
+      // An empty id would quietly run the agent's tools on your own account.
+      if (!tenantId) throw new SwytchcodeError("tenantId must be a non-empty string when set");
+      this.tenantId = tenantId;
+    }
+    const tenantLabel = options.tenantLabel?.trim();
+    if (tenantLabel) {
+      if (!this.tenantId) throw new SwytchcodeError("tenantLabel needs tenantId");
+      this.tenantLabel = tenantLabel;
+    }
     this.tools = new Tools(this);
   }
 

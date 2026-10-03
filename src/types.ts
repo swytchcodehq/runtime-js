@@ -25,6 +25,20 @@ export interface ExecOptions {
    * agent tool-call hot path.
    */
   timeoutMs?: number;
+  /**
+   * Run the call for one end user (tenant) of your app, with their own connected
+   * account (passes `--tenant`). Use your own id for the logged-in user, taken from
+   * your server's session. The call never falls back to your own account: if this
+   * user has not connected the provider, it fails with category `tenant_not_connected`.
+   */
+  tenantId?: string;
+  /**
+   * How approvers see this end user when a policy asks for human approval, for
+   * example `"Alice Smith (alice@acme.com)"` (passes `--tenant-label`). Needs
+   * `tenantId`. Only reaches the approval message; the approver sees the
+   * `tenantId` alone without it.
+   */
+  tenantLabel?: string;
 }
 
 /** Result of `exec()` in JSON mode: parsed stdout. In raw mode the result is a string. */
