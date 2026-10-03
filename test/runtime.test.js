@@ -66,8 +66,97 @@ test('Schema correctly marks array Wreken path parameters as required', () => {
     assert.ok(!simplified.required.includes("title"));
 });
 
+test('Schema expands a nested object body instead of flattening it', () => {
+    // The shape `swytchcode info` returns for a POST tool with an object body:
+    // the body's fields live under spec.schema, which simplify used to drop.
+    const rawSchema = [
+        { "owner": { "LOCATION": "path", "TYPE": "STRING" } },
+        {
+            "body": {
+                "LOCATION": "body",
+                "TYPE": "OBJECT",
+                "schema": {
+                    "properties": {
+                        "prompt": { "type": "string", "required": true },
+                        "create_pull_request": { "type": "boolean", "required": false }
+                    },
+                    "required": ["prompt"]
+                }
+            }
+        }
+    ];
+    const body = simplify(rawSchema).properties.body;
+    assert.strictEqual(body.type, "object");
+    assert.strictEqual(body.properties.prompt.type, "string");
+    assert.strictEqual(body.properties.create_pull_request.type, "boolean");
+    assert.deepStrictEqual(body.required, ["prompt"]);
+});
+
+test('toZod builds a real object schema for a nested body and parses it', async () => {
+    const { toZod } = require('../dist/schema.js');
+    const schema = simplify([
+        {
+            "body": {
+                "LOCATION": "body",
+                "TYPE": "OBJECT",
+                "schema": {
+                    "properties": { "prompt": { "type": "string", "required": true } },
+                    "required": ["prompt"]
+                }
+            }
+        }
+    ]);
+    const zodSchema = toZod(schema);
+    const parsed = zodSchema.parse({ body: { prompt: "hi" } });
+    // A plain object (not a class instance) so JSON.stringify never throws.
+    assert.deepStrictEqual(parsed.body, { prompt: "hi" });
+    assert.throws(() => zodSchema.parse({ body: {} }));
+    assert.throws(() => zodSchema.parse({ body: { prompt: 1 } }));
+});
+
+test('Schema expands array items with nested objects and validates via toZod', async () => {
+    const { toZod } = require('../dist/schema.js');
+    const rawSchema = [
+        {
+            "body": {
+                "LOCATION": "body",
+                "TYPE": "OBJECT",
+                "schema": {
+                    "properties": {
+                        "attendees": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "schema": {
+                                    "properties": { "email": { "type": "string", "required": true } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ];
+    const simplified = simplify(rawSchema);
+    assert.strictEqual(simplified.properties.body.properties.attendees.type, "array");
+    assert.strictEqual(simplified.properties.body.properties.attendees.items.properties.email.type, "string");
+
+    const zodSchema = toZod(simplified);
+    const valid = zodSchema.parse({ body: { attendees: [{ email: "a@b.com" }] } });
+    assert.strictEqual(valid.body.attendees[0].email, "a@b.com");
+    assert.throws(() => zodSchema.parse({ body: { attendees: [{ email: 123 }] } }));
+});
+
+test('toZod keeps a permissive record for a freeform object body', async () => {
+    const { toZod } = require('../dist/schema.js');
+    const schema = simplify([{ "body": { "LOCATION": "body", "TYPE": "OBJECT" } }]);
+    const parsed = toZod(schema).parse({ body: { anything: 1, nested: { a: true } } });
+    assert.deepStrictEqual(parsed.body, { anything: 1, nested: { a: true } });
+});
+
 test('CrewAIProvider produces correct duck-typed shape', async () => {
     const { CrewAIProvider } = require('../dist/providers/crewai.js');
+    const { z } = require('zod');
     const provider = new CrewAIProvider();
     const toolDef = {
         canonicalId: "test.tool",
@@ -79,12 +168,38 @@ test('CrewAIProvider produces correct duck-typed shape', async () => {
     const formatted = provider.formatTool(toolDef);
     assert.strictEqual(formatted.name, "test_tool");
     assert.strictEqual(formatted.description, "A crewai test tool");
-    assert.deepStrictEqual(formatted.schema, toolDef.inputSchema);
-    assert.strictEqual(typeof formatted.func, "function");
+    assert.ok(formatted.schema instanceof z.ZodObject);
+    assert.strictEqual(formatted.verbose, false);
+    assert.strictEqual(formatted.cacheResults, false);
+    assert.strictEqual(typeof formatted.execute, "function");
+    assert.strictEqual(typeof formatted.getMetadata, "function");
     
-    // Ensure func returns stringified JSON as expected
-    const res = await formatted.func({ a: "test" });
-    assert.strictEqual(res, '{"a":"test"}');
+    // Validate schema behavior for valid and invalid inputs
+    assert.deepStrictEqual(formatted.schema.parse({ a: "valid" }), { a: "valid" });
+    assert.throws(() => formatted.schema.parse({}));
+    assert.throws(() => formatted.schema.parse({ a: 123 }));
+
+    // Ensure execute returns ToolExecutionResult as expected on success
+    const res = await formatted.execute({ a: "test" });
+    assert.deepStrictEqual(res, { success: true, result: { a: "test" } });
+
+    // Test error handling in execute when tool throws
+    const failingToolDef = {
+        ...toolDef,
+        execute: async () => { throw new Error("Execution failed"); }
+    };
+    const formattedFailing = provider.formatTool(failingToolDef);
+    const failRes = await formattedFailing.execute({ a: "test" });
+    assert.deepStrictEqual(failRes, { success: false, result: null, error: "Execution failed" });
+
+    // Validate getMetadata output and schema behavior
+    const metadata = formatted.getMetadata();
+    assert.strictEqual(metadata.name, "test_tool");
+    assert.strictEqual(metadata.description, "A crewai test tool");
+    assert.ok(metadata.schema instanceof z.ZodObject);
+    assert.deepStrictEqual(metadata.schema.parse({ a: "valid" }), { a: "valid" });
+    assert.throws(() => metadata.schema.parse({}));
+    assert.throws(() => metadata.schema.parse({ a: 123 }));
 });
 
 test('TOOL_USE_INSTRUCTIONS is exported, instructs the model to call tools, and scopes itself to Swytchcode tools only', () => {
@@ -180,3 +295,21 @@ test('Deterministic alias generation and round-tripping for >64 char IDs', async
         discover.search = origSearch;
     }
 });
+
+test('Schema filters out system parameters starting with dollar sign', () => {
+    const rawSchema = [
+        { "$.xgafv": { "LOCATION": "query", "TYPE": "STRING" } },
+        { "q": { "LOCATION": "query", "TYPE": "STRING" } }
+    ];
+    const simplified = simplify(rawSchema);
+    assert.strictEqual(simplified.properties["$.xgafv"], undefined);
+    assert.strictEqual(simplified.properties.q.type, "string");
+});
+
+test('options.env.SWYTCHCODE_DEMO="0" overrides process.env.SWYTCHCODE_DEMO="1"', () => {
+    const { parseClassifiedError } = require('../dist/exec.js');
+    const childEnv = { ...{ SWYTCHCODE_DEMO: "1" }, ...{ SWYTCHCODE_DEMO: "0" } };
+    assert.strictEqual(childEnv.SWYTCHCODE_DEMO === "1", false);
+});
+
+

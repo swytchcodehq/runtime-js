@@ -7,11 +7,12 @@ export function runCli(
   opts: { cwd?: string; env?: Record<string,string>; timeoutMs?: number; input?: string; json?: boolean } = {}
 ): any {
   const cmd = opts.json === false || args.includes("--json") ? args : [...args, "--json"];
-  const bin = resolveSwytchcodeBin(opts.cwd ?? process.cwd());
+  const childEnv = { ...process.env, ...opts.env };
+  const bin = resolveSwytchcodeBin(opts.cwd ?? process.cwd(), childEnv);
   const inv = buildInvocation(bin, cmd);
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const r = spawnSync(inv.command, inv.args, {
-    cwd: opts.cwd ?? process.cwd(), env: { ...process.env, ...opts.env },
+    cwd: opts.cwd ?? process.cwd(), env: childEnv,
     input: opts.input,
     encoding: "utf8", maxBuffer: 10 * 1024 * 1024,
     windowsVerbatimArguments: inv.windowsVerbatimArguments,
