@@ -72,6 +72,8 @@ Equivalent to: `swytchcode exec api.report.export --raw` with input on stdin.
 - **`dryRun`** - If `true`, pass `--dry-run` to the CLI; the CLI outputs request details (method, url, headers, body) instead of calling the server.
 - **`allowRaw`** - If `true`, pass `--allow-raw` to the CLI; required for executing raw methods (kernel has this disabled by default).
 - **`debug`** - If `true`, log spawn args, cwd, exit status, and stdout/stderr lengths to stderr.
+- **`tenantId`** - Run the call for one end user of your app, with their own connected account (passes `--tenant`). Never falls back to your account. See [Multi-tenant apps](#multi-tenant-apps).
+- **`tenantLabel`** - How approvers see that end user, e.g. `"Alice Smith (alice@acme.com)"` (passes `--tenant-label`). Needs `tenantId`.
 
 This runtime invokes `swytchcode exec [canonical_id]` with the flags above. For full exec behavior (exit codes, output format, pipeline), see the [Swytchcode kernel documentation](https://github.com/swytchcodehq/runtime-js).
 
@@ -109,6 +111,22 @@ try {
   throw e;
 }
 ```
+
+## Multi-tenant apps
+
+When your app's own users each connect their accounts, pass your id for the logged-in user (from your server's session, never from the browser) on every call made for them:
+
+```ts
+import { connect, saveKey, disconnect, exec, Swytchcode } from "@swytchcode/runtime";
+
+const { url } = connect({ provider: "gmail", tenantId: user.id });      // one-time link (OAuth), open it from the user's click
+saveKey({ provider: "stripe", tenantId: user.id, key });                // API-key providers: stored on your server only
+await exec("gmail.user.profile.get", { params: { userId: "me" } }, { tenantId: user.id });
+const client = new Swytchcode(provider, { tenantId: user.id });         // agents: every tool runs for this user
+disconnect({ provider: "gmail", tenantId: user.id });
+```
+
+An end user who has not connected fails with `error.details.category === "tenant_not_connected"`. Guide: https://docs.swytchcode.com/guides/multi-tenant/
 
 ## What this library is
 

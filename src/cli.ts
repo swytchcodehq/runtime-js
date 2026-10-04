@@ -4,15 +4,16 @@ import { SwytchcodeError } from "./errors.js";
 
 export function runCli(
   args: string[],
-  opts: { cwd?: string; env?: Record<string,string>; timeoutMs?: number } = {}
+  opts: { cwd?: string; env?: Record<string,string>; timeoutMs?: number; input?: string; json?: boolean } = {}
 ): any {
-  const cmd = args.includes("--json") ? args : [...args, "--json"];
+  const cmd = opts.json === false || args.includes("--json") ? args : [...args, "--json"];
   const childEnv = { ...process.env, ...opts.env };
   const bin = resolveSwytchcodeBin(opts.cwd ?? process.cwd(), childEnv);
   const inv = buildInvocation(bin, cmd);
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const r = spawnSync(inv.command, inv.args, {
     cwd: opts.cwd ?? process.cwd(), env: childEnv,
+    input: opts.input,
     encoding: "utf8", maxBuffer: 10 * 1024 * 1024,
     windowsVerbatimArguments: inv.windowsVerbatimArguments,
     timeout: timeoutMs,
@@ -24,6 +25,6 @@ export function runCli(
   }
   if (r.status !== 0) throw new SwytchcodeError((r.stderr ?? "").trim() || "command failed", r.status);
   const out = (r.stdout ?? "").trim();
-  if (!out) return null;
+  if (!out || opts.json === false) return null;
   try { return JSON.parse(out); } catch { throw new SwytchcodeError("Invalid JSON from swytchcode", out); }
 }

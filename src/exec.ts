@@ -209,10 +209,27 @@ export function exec(
     );
   }
 
+  // An empty tenant id must never quietly run the call on the developer's own account.
+  const tenantId = options.tenantId?.trim();
+  if (options.tenantId !== undefined && !tenantId) {
+    log(debug, "reject:", "tenantId is empty");
+    return Promise.reject(
+      new SwytchcodeError("tenantId must be a non-empty string when set", undefined)
+    );
+  }
+
+  const tenantLabel = options.tenantLabel?.trim();
+  if (tenantLabel && !tenantId) {
+    log(debug, "reject:", "tenantLabel without tenantId");
+    return Promise.reject(new SwytchcodeError("tenantLabel needs tenantId", undefined));
+  }
+
   const raw = outputMode === "raw";
   const args = ["exec", canonicalIdTrimmed, raw ? "--raw" : "--json"];
   if (options.dryRun === true) args.push("--dry-run");
   if (options.allowRaw === true) args.push("--allow-raw");
+  if (tenantId) args.push("--tenant", tenantId);
+  if (tenantLabel) args.push("--tenant-label", tenantLabel);
   const cwd = options.cwd ?? process.cwd();
   const hasInput = input !== undefined && input !== null;
   const childEnv = { ...process.env, ...options.env };
