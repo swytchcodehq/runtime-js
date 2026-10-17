@@ -2,7 +2,7 @@ const assert = require('node:assert');
 const { test, describe, mock, afterEach } = require('node:test');
 const cp = require('node:child_process');
 const { exec } = require('../dist/exec.js');
-const { connect, saveKey, disconnect } = require('../dist/tenants.js');
+const { connect, saveKey, saveCredentials, disconnect } = require('../dist/tenants.js');
 const { SwytchcodeError } = require('../dist/errors.js');
 
 function fakeSpawn(stdout, status = 0, stderr = '') {
@@ -133,5 +133,25 @@ describe('Swytchcode client bound to an end user', () => {
         assert.deepStrictEqual(spawn.mock.calls[0].arguments[1].slice(-4), ['--tenant', 'alice', '--tenant-label', 'Alice Smith']);
         assert.deepStrictEqual(spawn.mock.calls[1].arguments[1].slice(-2), ['--tenant', 'bob']);
         assert.throws(() => new Swytchcode(undefined, { tenantLabel: 'Alice' }), /tenantLabel needs tenantId/);
+    });
+    test('saveCredentials() sends one JSON line on stdin, never as arguments', () => {
+        const spawn = fakeSpawn(JSON.stringify({ provider_slug: 'coinswitch', tenant_id: 'alice', auth_type: 'request_signature', stored: 'local' }));
+        saveCredentials({ provider: 'coinswitch', tenantId: 'alice', credentials: { api_key: ' pub ', secret_key: 'sec' } });
+        const [, args, opts] = spawn.mock.calls[0].arguments;
+        assert.deepStrictEqual(args, ['auth', 'connect', 'coinswitch', '--tenant', 'alice', '--json']);
+        assert.strictEqual(opts.input, '{"api_key":"pub","secret_key":"sec"}\n');
+        assert.ok(!args.join(' ').includes('sec'));
+    });
+
+    test('saveCredentials() on a provider that is not signed throws', () => {
+        fakeSpawn(JSON.stringify({ provider_slug: 'stripe', auth_type: 'api_key', stored: 'local' }));
+        assert.throws(() => saveCredentials({ provider: 'stripe', tenantId: 'alice', credentials: { api_key: 'k' } }), /does not use signed requests/);
+    });
+
+    test('saveCredentials() rejects empty or non-string credentials before running the CLI', () => {
+        const spawn = fakeSpawn('{}');
+        assert.throws(() => saveCredentials({ provider: 'x', tenantId: 'alice', credentials: {} }), /must not be empty/);
+        assert.throws(() => saveCredentials({ provider: 'x', tenantId: 'alice', credentials: { a: 1 } }), /must be a string/);
+        assert.strictEqual(spawn.mock.callCount(), 0);
     });
 });

@@ -117,16 +117,18 @@ try {
 When your app's own users each connect their accounts, pass your id for the logged-in user (from your server's session, never from the browser) on every call made for them:
 
 ```ts
-import { connect, saveKey, disconnect, exec, Swytchcode } from "@swytchcode/runtime";
+import { connect, saveKey, saveCredentials, disconnect, exec, Swytchcode } from "@swytchcode/runtime";
 
 const { url } = connect({ provider: "gmail", tenantId: user.id });      // one-time link (OAuth), open it from the user's click
 saveKey({ provider: "stripe", tenantId: user.id, key });                // API-key providers: stored on your server only
+saveCredentials({ provider: "coinswitch", tenantId: user.id,           // signed requests (crypto exchanges): every field
+  credentials: { api_key, secret_key } });                              //   the exchange needs, stored on your server only
 await exec("gmail.user.profile.get", { params: { userId: "me" } }, { tenantId: user.id });
 const client = new Swytchcode(provider, { tenantId: user.id });         // agents: every tool runs for this user
 disconnect({ provider: "gmail", tenantId: user.id });
 ```
 
-An end user who has not connected fails with `error.details.category === "tenant_not_connected"`. Guide: https://docs.swytchcode.com/guides/multi-tenant/
+An end user who has not connected fails with `error.details.category === "tenant_not_connected"`. For exchanges that sign every request, `saveCredentials()` takes the fields the provider's signing recipe names (for example `api_key`, `secret_key` and `passphrase`); the CLI signs each of that user's requests with them. Guide: https://docs.swytchcode.com/guides/multi-tenant/
 
 ## What this library is
 
