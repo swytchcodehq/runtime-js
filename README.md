@@ -121,7 +121,7 @@ import { connect, saveKey, saveCredentials, disconnect, exec, Swytchcode } from 
 
 const { url } = connect({ provider: "gmail", tenantId: user.id });      // one-time link (OAuth), open it from the user's click
 saveKey({ provider: "stripe", tenantId: user.id, key });                // API-key providers: stored on your server only
-saveCredentials({ provider: "coinswitch", tenantId: user.id,           // signed requests (crypto exchanges): every field
+saveCredentials({ provider: "binance", tenantId: user.id,              // signed requests (crypto exchanges): every field
   credentials: { api_key, secret_key } });                              //   the exchange needs, stored on your server only
 await exec("gmail.user.profile.get", { params: { userId: "me" } }, { tenantId: user.id });
 const client = new Swytchcode(provider, { tenantId: user.id });         // agents: every tool runs for this user
