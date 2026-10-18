@@ -61,6 +61,36 @@ export function saveKey(o: TenantOptions & { key: string }): void {
   }
 }
 
+/**
+ * Save an end user's credentials for a provider whose requests are signed (crypto
+ * exchanges): several fields, such as `{ api_key, secret_key, passphrase }`, named
+ * as the provider's signing recipe names them (`swytchcode info` shows the auth
+ * block). They are stored encrypted on this machine only, never sent to
+ * Swytchcode; the CLI signs each of this end user's requests with them. Like
+ * `saveKey()`, this counts the end user toward your plan's end-user limit.
+ */
+export function saveCredentials(o: TenantOptions & { credentials: Record<string, string> }): void {
+  const creds = o.credentials;
+  if (!creds || typeof creds !== "object" || Array.isArray(creds)) {
+    throw new SwytchcodeError("credentials must be an object of field names to values");
+  }
+  const fields: Record<string, string> = {};
+  for (const [name, value] of Object.entries(creds)) {
+    if (typeof value !== "string") throw new SwytchcodeError(`credential ${name} must be a string`);
+    if (value.trim()) fields[name] = value.trim();
+  }
+  if (Object.keys(fields).length === 0) throw new SwytchcodeError("credentials must not be empty");
+  // One JSON line on stdin: the values never appear in the process arguments.
+  const out = runCli(["auth", "connect", ...tenantArgs(o), "--json"], {
+    cwd: o.cwd,
+    env: o.env,
+    input: JSON.stringify(fields) + "\n",
+  });
+  if (!out || out.stored !== "local" || out.auth_type !== "request_signature") {
+    throw new SwytchcodeError(`${o.provider} does not use signed requests; use saveKey() or connect() instead`, out);
+  }
+}
+
 /** Remove one end user's account for a provider, on this machine and on Swytchcode. */
 export function disconnect(o: TenantOptions): void {
   runCli(["auth", "disconnect", ...tenantArgs(o)], { cwd: o.cwd, env: o.env, json: false });
